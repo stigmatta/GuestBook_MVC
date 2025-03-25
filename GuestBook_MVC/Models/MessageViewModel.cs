@@ -2,6 +2,6 @@
 
 public class MessageViewModel
 {
-    public string MessageText { get; set; } 
-    public ICollection<Message> Messages { get; set; } 
+    public string? MessageText { get; set; }
+    public ICollection<Message> Messages { get; set; } = null!;
 }

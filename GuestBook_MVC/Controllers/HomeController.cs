@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using GuestBook_MVC.Models;
 using Microsoft.EntityFrameworkCore;
+using Sodium;
 
 namespace GuestBook_MVC.Controllers;
 
@@ -13,7 +14,7 @@ public class HomeController : Controller
         _context = messageContext;
     }
 
-    public async Task<IActionResult> Index()
+    public IActionResult Index()
     {
         var messages = _context.Messages.Include(m => m.User).ToList();
 
@@ -67,7 +68,8 @@ public class HomeController : Controller
     {
         var existingUser = _context.Users.FirstOrDefault(u => user.Name == u.Name);
 
-        if(existingUser == null || existingUser.Password != user.Password)
+
+        if (existingUser == null || (PasswordHash.ArgonHashStringVerify(existingUser.Password, user.Password) == false) )
         {
             ModelState.AddModelError("Password", "Invalid username or password");
             return View(user);
@@ -93,7 +95,10 @@ public class HomeController : Controller
             return View(user);
         }
 
+        user.Password = PasswordHash.ArgonHashString(user.Password, PasswordHash.StrengthArgon.Interactive);
+
         _context.Users.Add(user);
+
         try
         {
             _context.SaveChanges();
@@ -106,7 +111,6 @@ public class HomeController : Controller
 
         return RedirectToAction("Login", "Home");
     }
-
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
     public IActionResult Error()
