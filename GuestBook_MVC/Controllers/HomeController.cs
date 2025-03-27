@@ -3,20 +3,21 @@ using Microsoft.AspNetCore.Mvc;
 using GuestBook_MVC.Models;
 using Microsoft.EntityFrameworkCore;
 using Sodium;
+using GuestBook_MVC.Repositories;
 
 namespace GuestBook_MVC.Controllers;
 
 public class HomeController : Controller
 {
-    private readonly MessageContext _context;
-    public HomeController(MessageContext messageContext)
+    private readonly IRepository _repo;
+    public HomeController(IRepository repo)
     {
-        _context = messageContext;
+        _repo = repo;
     }
 
-    public IActionResult Index()
+    public async Task<IActionResult> Index()
     {
-        var messages = _context.Messages.Include(m => m.User).ToList();
+        var messages = await _repo.GetMessages();
 
         var viewModel = new MessageViewModel
         {
@@ -30,7 +31,12 @@ public class HomeController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Index(MessageViewModel model)
     {
-        var user = _context.Users.FirstOrDefault(u => u.Name == HttpContext.Session.GetString("username"));
+        var sessionStr = HttpContext.Session.GetString("username");
+        User? user = null;
+
+        if (!string.IsNullOrEmpty(sessionStr))
+            user = await _repo.GetUser(sessionStr); 
+
         if (user != null && !string.IsNullOrEmpty(model.MessageText))
         {
             var _message = new Message
@@ -40,8 +46,8 @@ public class HomeController : Controller
                 SendDate = DateTime.Now
             };
 
-            _context.Messages.Add(_message);
-            await _context.SaveChangesAsync();
+            await _repo.AddMessage(_message);
+            await _repo.Save();
         }
 
         return RedirectToAction("Index");
@@ -64,19 +70,20 @@ public class HomeController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult Login([Bind("Id","Name","Password")] User user)
+    public async Task<IActionResult> Login([Bind("Id", "Name", "Password")] User user)
     {
-        var existingUser = _context.Users.FirstOrDefault(u => user.Name == u.Name);
+        var existingUser = await _repo.GetUser(user.Name); 
 
-
-        if (existingUser == null || (PasswordHash.ArgonHashStringVerify(existingUser.Password, user.Password) == false) )
+        if (existingUser == null || !PasswordHash.ArgonHashStringVerify(existingUser.Password, user.Password))
         {
             ModelState.AddModelError("Password", "Invalid username or password");
             return View(user);
         }
+
         HttpContext.Session.SetString("username", user.Name);
         return RedirectToAction("Index", "Home");
     }
+
 
     public IActionResult Registration()
     {
@@ -87,7 +94,7 @@ public class HomeController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult Registration(User user)
+    public async Task<IActionResult> Registration(User user)
     {
         if(user.Password != user.ConfirmPassword)
         {
@@ -96,12 +103,12 @@ public class HomeController : Controller
         }
 
         user.Password = PasswordHash.ArgonHashString(user.Password, PasswordHash.StrengthArgon.Interactive);
-
-        _context.Users.Add(user);
+        
+        await _repo.AddUser(user);
 
         try
         {
-            _context.SaveChanges();
+            await _repo.Save();
         }
         catch (DbUpdateException)
         {

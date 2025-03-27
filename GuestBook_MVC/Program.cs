@@ -1,4 +1,5 @@
 using GuestBook_MVC.Models;
+using GuestBook_MVC.Repositories;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,8 @@ builder.Services.AddControllersWithViews();
 string? connection = builder.Configuration.GetConnectionString("DefaultConnection");
 
 builder.Services.AddDbContext<MessageContext>(options => options.UseSqlServer(connection));
+
+builder.Services.AddScoped<IRepository, UserRepository>();
 
 
 var app = builder.Build();
