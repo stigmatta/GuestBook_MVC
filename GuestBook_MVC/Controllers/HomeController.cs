@@ -1,127 +1,103 @@
-using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using GuestBook_MVC.Models;
-using Microsoft.EntityFrameworkCore;
-using Sodium;
 using GuestBook_MVC.Repositories;
+using Sodium;
+using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 
 namespace GuestBook_MVC.Controllers;
 
 public class HomeController : Controller
 {
     private readonly IRepository _repo;
+
     public HomeController(IRepository repo)
     {
         _repo = repo;
     }
 
-    public async Task<IActionResult> Index()
+    public IActionResult Index() => View();
+
+    [HttpGet]
+    public async Task<IActionResult> GetMessages()
     {
         var messages = await _repo.GetMessages();
-
-        var viewModel = new MessageViewModel
+        var result = messages.Select(m => new
         {
-            Messages = messages
+            user = m.User?.Name ?? "Unknown",
+            text = m.MessageText,
+            date = m.SendDate.ToString("g")
+        });
+        return Json(result);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> SendMessage([FromBody] MessageViewModel model)
+    {
+        var username = HttpContext.Session.GetString("username");
+        var user = !string.IsNullOrEmpty(username)
+            ? await _repo.GetUser(username)
+            : null;
+
+        if (user == null || string.IsNullOrWhiteSpace(model.MessageText))
+            return Json(new { success = false, error = "Unauthorized or empty message." });
+
+        var message = new Message
+        {
+            User = user,
+            MessageText = model.MessageText,
+            SendDate = DateTime.Now
         };
 
-        return View(viewModel);
+        await _repo.AddMessage(message);
+        await _repo.Save();
+
+        return Json(new { success = true });
     }
 
     [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Index(MessageViewModel model)
+    public async Task<IActionResult> AjaxLogin([FromBody] User user)
     {
-        var sessionStr = HttpContext.Session.GetString("username");
-        User? user = null;
-
-        if (!string.IsNullOrEmpty(sessionStr))
-            user = await _repo.GetUser(sessionStr); 
-
-        if (user != null && !string.IsNullOrEmpty(model.MessageText))
-        {
-            var _message = new Message
-            {
-                User = user,
-                MessageText = model.MessageText,
-                SendDate = DateTime.Now
-            };
-
-            await _repo.AddMessage(_message);
-            await _repo.Save();
-        }
-
-        return RedirectToAction("Index");
-    }
-
-    public IActionResult LogOut()
-    {
-        HttpContext.Session.Clear();
-        return RedirectToAction("Index");
-    }
-
-
-
-    public IActionResult Login()
-    {
-        if (HttpContext.Session.GetString("username") != null)
-            return RedirectToAction("Index");
-        return View();
-    }
-
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Login([Bind("Id", "Name", "Password")] User user)
-    {
-        var existingUser = await _repo.GetUser(user.Name); 
-
+        var existingUser = await _repo.GetUser(user.Name);
         if (existingUser == null || !PasswordHash.ArgonHashStringVerify(existingUser.Password, user.Password))
-        {
-            ModelState.AddModelError("Password", "Invalid username or password");
-            return View(user);
-        }
+            return Json(new { success = false, error = "Invalid username or password" });
 
-        HttpContext.Session.SetString("username", user.Name);
-        return RedirectToAction("Index", "Home");
-    }
-
-
-    public IActionResult Registration()
-    {
-        if (HttpContext.Session.GetString("username") != null)
-            return RedirectToAction("Index");
-        return View();
+        HttpContext.Session.SetString("username", existingUser.Name);
+        return Json(new { success = true, isGuest = false });
     }
 
     [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Registration(User user)
+    public async Task<IActionResult> Registration([FromBody] User user)
     {
-        if(user.Password != user.ConfirmPassword)
-        {
-            ModelState.AddModelError("Password", "Passwords have to be similar");
-            return View(user);
-        }
+        if (user.Password != user.ConfirmPassword)
+            return Json(new { success = false, error = "Passwords do not match" });
 
         user.Password = PasswordHash.ArgonHashString(user.Password, PasswordHash.StrengthArgon.Interactive);
-        
-        await _repo.AddUser(user);
 
+        await _repo.AddUser(user);
         try
         {
             await _repo.Save();
         }
         catch (DbUpdateException)
         {
-            ModelState.AddModelError("Name", "This username is already taken");
-            return View(user);
+            return Json(new { success = false, error = "Username already taken" });
         }
 
-        return RedirectToAction("Login", "Home");
+        HttpContext.Session.SetString("username", user.Name);
+        return Json(new { success = true, isGuest = false });
     }
 
-    [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
-    public IActionResult Error()
+    [HttpPost]
+    public IActionResult GuestLogin()
     {
-        return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+        return Json(new { success = true, isGuest = true });
+    }
+
+    [HttpPost]
+    public IActionResult LogOut()
+    {
+        HttpContext.Session.Clear();
+        return Json(new { success = true });
     }
 }

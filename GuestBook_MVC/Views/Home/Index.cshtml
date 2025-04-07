@@ -1,56 +1,169 @@
-﻿@model MessageViewModel
-
-@{
+﻿@{
     ViewData["Title"] = "Home Page";
 }
 
 <h2>Messages</h2>
 
-<div class="scrollable-message-list">
-    @foreach (var message in Model.Messages)
-    {
-        <div class="message-container">
-            <strong>@message.User.Name</strong> said:
-            <p>@message.MessageText</p>
-            <small>@message.SendDate.ToString()</small>
-        </div>
-    }
+<button class="btn btn-secondary mb-3" id="toggleFormButton">Write a Message</button>
+
+<div id="messageSection">
+    <div class="scrollable-message-list" id="messageList"></div>
 </div>
 
-@if (Context.Session.GetString("username") != null)
-{
-    <div class="d-flex flex-column justify-content-center align-items-center w-100">
-        <form class="w-100" asp-action="Index" method="post">
-            <div class="form-group mt-3">
-                <textarea asp-for="MessageText" class="form-control" rows="4" cols="50"></textarea>
-                <input class="btn btn-primary mt-2" type="submit" value="Send" />
-            </div>
-        </form>
-
-        <form asp-action="LogOut">
-            <input type="submit" class="btn btn-primary mt-5" value="Log out" />
-        </form>
+<div id="formSection" style="display: none;">
+    <div class="form-group mt-3 w-100">
+        <textarea id="messageText" class="form-control" rows="4" cols="50"></textarea>
+        <input class="btn btn-primary mt-2" type="button" id="sendButton" value="Send" />
     </div>
-}
+</div>
 
+<div class="d-flex flex-column mx-auto justify-content-center align-items-center" style="width: 20em;">
+    <h1>Login</h1>
+    <div class="p-3 shadow" style="max-width: 20em;">
+        <div class="form-group">
+            <label for="loginName">Username</label>
+            <input id="loginName" class="form-control" />
+        </div>
+        <div class="form-group">
+            <label for="loginPassword">Password</label>
+            <input id="loginPassword" type="password" class="form-control" />
+        </div>
+        <input type="button" value="Log in" id="loginButton" class="btn btn-primary mt-3 w-100" />
+        <input type="button" value="Sign up" id="registerButton" class="btn btn-primary mt-3 w-100" />
+        <input type="button" value="Guest log in" id="guestButton" class="btn btn-primary mt-3 w-100" />
+        <input type="button" class="btn btn-danger mt-3 w-100" id="logoutButton" value="Log out" />
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        let isGuest = false;
+
+        function loadMessages() {
+            $.get('/Home/GetMessages', function (data) {
+                const container = $('#messageList');
+                container.empty();
+                data.forEach(msg => {
+                    const msgHtml = `<div class="message-container">
+                        <strong>${msg.user}</strong> said:
+                        <p>${msg.text}</p>
+                        <small>${msg.date}</small>
+                    </div>`;
+                    container.append(msgHtml);
+                });
+            });
+        }
+
+        function updateUIAfterLogin(res) {
+            isGuest = res.isGuest;
+            $('#toggleFormButton').toggle(!isGuest);
+            loadMessages();
+        }
+
+        $('#toggleFormButton').click(function () {
+            $('#messageSection').toggle();
+            $('#formSection').toggle();
+        });
+
+        $('#sendButton').click(function () {
+            const messageText = $('#messageText').val();
+            $.ajax({
+                url: '/Home/SendMessage',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ MessageText: messageText }),
+                success: function (res) {
+                    if (res.success) {
+                        $('#messageText').val('');
+                        loadMessages();
+                        $('#formSection').hide();
+                        $('#messageSection').show();
+                    } else {
+                        alert(res.error);
+                    }
+                }
+            });
+        });
+
+        $('#loginButton').click(function () {
+            const name = $('#loginName').val();
+            const password = $('#loginPassword').val();
+            $.ajax({
+                url: '/Home/AjaxLogin',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ Name: name, Password: password }),
+                success: function (res) {
+                    if (res.success) {
+                        updateUIAfterLogin(res);
+                    } else {
+                        alert(res.error);
+                    }
+                }
+            });
+        });
+
+        $('#registerButton').click(function () {
+            const name = $('#loginName').val();
+            const password = $('#loginPassword').val();
+            $.ajax({
+                url: '/Home/Registration',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ Name: name, Password: password, ConfirmPassword: password }),
+                success: function (res) {
+                    if (res.success) {
+                        alert('Registered successfully!');
+                        updateUIAfterLogin(res);
+                    } else {
+                        alert(res.error);
+                    }
+                }
+            });
+        });
+
+        $('#guestButton').click(function () {
+            $.post('/Home/GuestLogin', function (res) {
+                if (res.success) {
+                    updateUIAfterLogin(res);
+                }
+            });
+        });
+
+        $('#logoutButton').click(function () {
+            $.post('/Home/LogOut', function (res) {
+                if (res.success) {
+                    $('#messageList').empty();
+                    $('#toggleFormButton').hide();
+                }
+            });
+        });
+
+        $(document).ready(function () {
+            $('#toggleFormButton').hide();
+            loadMessages();
+        });
+    </script>
+}
 
 <style>
     .scrollable-message-list {
         max-width: 600px;
-        height: 400px; 
+        height: 400px;
         overflow-y: auto;
         margin: 0 auto;
-        border: 1px solid #ddd; 
+        border: 1px solid #ddd;
         padding: 10px;
-        background-color: #f9f9f9; 
+        background-color: #f9f9f9;
     }
 
     .message-container {
-        margin-bottom: 15px; 
+        margin-bottom: 15px;
         padding: 10px;
-        background-color: #fff; 
-        border: 1px solid #ddd; 
-        border-radius: 5px; 
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 5px;
     }
 
         .message-container strong {
@@ -61,7 +174,4 @@
             word-wrap: break-word;
             margin: 5px 0;
         }
-
 </style>
-
-
